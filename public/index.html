@@ -3,21 +3,28 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Newton Image Tool</title>
+    <title>牛顿AI图像工具</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
+    <div class="page-glow page-glow-left" aria-hidden="true"></div>
+    <div class="page-glow page-glow-right" aria-hidden="true"></div>
     <main class="app-shell">
       <aside class="panel settings-panel">
         <div class="brand-row">
-          <div>
-            <h1>Newton Image Tool</h1>
+          <div class="brand-block">
+            <span class="eyebrow">https://newtonrouter.com</span>
+            <h1>牛顿AI图像工具</h1>
+            <p>本地生成，直接保存，开箱即用。</p>
           </div>
           <span id="serverState" class="state-pill">本地</span>
         </div>
 
         <label class="field">
-          <span>API 密钥</span>
+          <span class="field-label-row">
+            <span>API 密钥</span>
+            <a href="https://newtonrouter.com" target="_blank" rel="noreferrer">获取密钥</a>
+          </span>
           <input id="apiKey" type="password" autocomplete="off" placeholder="请输入 sk-... 密钥">
         </label>
 
@@ -26,8 +33,8 @@
         <div class="field">
           <span>使用方式</span>
           <div class="segmented" role="radiogroup" aria-label="使用方式">
-            <button class="active" data-mode="generations" type="button">标准模式</button>
-            <button data-mode="chat" type="button">实时返回</button>
+            <button class="active" data-mode="generations" type="button">Generations</button>
+            <button data-mode="chat" type="button">Chat Stream</button>
           </div>
         </div>
 
@@ -40,20 +47,21 @@
           </div>
         </div>
 
-        <label class="field">
-          <span>保存位置</span>
-          <div class="inline-field">
-            <input id="saveDir" type="text" spellcheck="false">
-            <button id="chooseDir" class="icon-button" type="button" title="选择文件夹" aria-label="选择文件夹">
-              <span>...</span>
-            </button>
+        <section class="subpanel">
+          <div class="subpanel-head">
+            <strong>保存设置</strong>
           </div>
-        </label>
 
-        <div class="button-row">
-          <button id="checkDir" type="button">检测/创建</button>
-          <button id="openDir" type="button">打开目录</button>
-        </div>
+          <label class="field">
+            <span>保存位置</span>
+            <div class="inline-field">
+              <input id="saveDir" type="text" spellcheck="false">
+              <button id="chooseDir" class="icon-button" type="button" title="选择文件夹" aria-label="选择文件夹">
+                <span>...</span>
+              </button>
+            </div>
+          </label>
+        </section>
 
         <label class="field">
           <span>图片描述</span>
@@ -70,19 +78,19 @@
       </aside>
 
       <section class="workspace">
-        <div class="workspace-head">
-          <div>
-            <h2>图片</h2>
-            <p id="statusText">准备就绪</p>
-          </div>
-          <button id="clearResults" type="button">清空</button>
-        </div>
-
         <div id="gallery" class="gallery empty">
           <div class="empty-state">
             <strong>还没有图片</strong>
             <span>生成成功后会自动保存到指定目录，并在这里预览。</span>
           </div>
+        </div>
+
+        <div class="workspace-head">
+          <div class="workspace-title">
+            <h2>图片</h2>
+            <p id="statusText">准备就绪</p>
+          </div>
+          <button id="clearResults" type="button">清空</button>
         </div>
 
         <section class="panel log-panel">

@@ -6,8 +6,6 @@ const els = {
   extraJson: document.querySelector("#extraJson"),
   generate: document.querySelector("#generate"),
   chooseDir: document.querySelector("#chooseDir"),
-  checkDir: document.querySelector("#checkDir"),
-  openDir: document.querySelector("#openDir"),
   clearResults: document.querySelector("#clearResults"),
   clearLog: document.querySelector("#clearLog"),
   gallery: document.querySelector("#gallery"),
@@ -20,8 +18,10 @@ const state = {
   mode: "generations",
   resolution: "1K",
   busy: false,
-  resultCount: 0
+  resultCount: 0,
+  hasLocalApi: window.location.protocol !== "file:"
 };
+const LOCAL_APP_URL = "http://127.0.0.1:31876/";
 
 init();
 
@@ -31,10 +31,19 @@ async function init() {
   bindEvents();
   restoreSettings();
 
+  if (!state.hasLocalApi) {
+    els.baseUrl.value = localStorage.getItem("newton.baseUrl") || "https://newtonrouter.com";
+    els.saveDir.value = localStorage.getItem("newton.saveDir") || "";
+    els.serverState.textContent = "静态";
+    setStatus("请通过启动脚本打开工具");
+    logLine("当前是 file:// 预览模式，目录选择、生成和保存功能需要通过本地启动脚本打开。");
+    return;
+  }
+
   try {
     const config = await apiGet("/api/config");
     els.baseUrl.value = localStorage.getItem("newton.baseUrl") || config.defaultBaseUrl;
-    els.saveDir.value = localStorage.getItem("newton.saveDir") || config.defaultSaveDir;
+    els.saveDir.value = localStorage.getItem("newton.saveDir") || "";
     els.serverState.textContent = config.platform === "win32" ? "Windows" : config.platform === "darwin" ? "macOS" : "本地";
     logLine("已连接。");
   } catch (error) {
@@ -57,8 +66,6 @@ function bindSegmented(selector, key) {
 function bindEvents() {
   els.generate.addEventListener("click", generate);
   els.chooseDir.addEventListener("click", chooseDir);
-  els.checkDir.addEventListener("click", checkDir);
-  els.openDir.addEventListener("click", () => openDir(els.saveDir.value));
   els.clearResults.addEventListener("click", clearResults);
   els.clearLog.addEventListener("click", () => {
     els.log.textContent = "";
@@ -84,6 +91,13 @@ function restoreSettings() {
 }
 
 async function chooseDir() {
+  if (!state.hasLocalApi) {
+    setStatus("正在打开本地工具...");
+    logLine("当前页面是 file:// 预览模式，正在尝试切换到本地运行地址，以便使用文件夹选择器。");
+    window.location.href = LOCAL_APP_URL;
+    return;
+  }
+
   setStatus("正在打开文件夹选择器...");
   try {
     const result = await apiPost("/api/select-folder", {});
@@ -101,21 +115,21 @@ async function chooseDir() {
   }
 }
 
-async function checkDir() {
-  try {
-    const result = await apiPost("/api/check-folder", { path: els.saveDir.value });
-    els.saveDir.value = result.path;
-    localStorage.setItem("newton.saveDir", result.path);
-    setStatus("保存目录可用");
-    logLine(`保存目录可用：${result.path}`);
-  } catch (error) {
-    setStatus("保存目录不可用");
-    logLine(`错误：${error.message}`);
-  }
-}
-
 async function generate() {
   if (state.busy) return;
+  if (!state.hasLocalApi) {
+    setStatus("正在打开本地工具...");
+    logLine("当前页面是 file:// 预览模式，正在尝试切换到本地运行地址，以便生成并保存图片。");
+    window.location.href = LOCAL_APP_URL;
+    return;
+  }
+
+  if (!els.saveDir.value.trim()) {
+    setStatus("请先选择保存位置");
+    logLine("请先点击“...”选择保存位置。");
+    return;
+  }
+
   const payload = collectPayload();
   if (!payload.apiKey) {
     setStatus("请先填写 API 密钥");
@@ -276,6 +290,13 @@ function clearResults() {
 }
 
 async function openDir(path) {
+  if (!state.hasLocalApi) {
+    setStatus("正在打开本地工具...");
+    logLine("当前页面是 file:// 预览模式，正在尝试切换到本地运行地址。");
+    window.location.href = LOCAL_APP_URL;
+    return;
+  }
+
   try {
     await apiPost("/api/open-folder", { path });
   } catch (error) {
