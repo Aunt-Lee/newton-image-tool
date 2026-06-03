@@ -36,9 +36,9 @@ async function init() {
     els.baseUrl.value = localStorage.getItem("newton.baseUrl") || config.defaultBaseUrl;
     els.saveDir.value = localStorage.getItem("newton.saveDir") || config.defaultSaveDir;
     els.serverState.textContent = config.platform === "win32" ? "Windows" : config.platform === "darwin" ? "macOS" : "本地";
-    logLine("本地服务已连接。");
+    logLine("已连接。");
   } catch (error) {
-    setStatus("本地服务未连接");
+    setStatus("连接失败");
     logLine(`错误：${error.message}`);
   }
 }
@@ -118,7 +118,7 @@ async function generate() {
   if (state.busy) return;
   const payload = collectPayload();
   if (!payload.apiKey) {
-    setStatus("请先填写 API Key");
+    setStatus("请先填写 API 密钥");
     els.apiKey.focus();
     return;
   }
@@ -160,20 +160,20 @@ function collectPayload() {
 }
 
 async function runGenerations(payload) {
-  setStatus("正在请求 generations...");
-  logLine(`POST ${payload.baseUrl.replace(/\/+$/, "")}/v1/images/generations`);
+  setStatus("正在生成图片...");
+  logLine("已提交图片生成请求。");
   const result = await apiPost("/api/generate", payload);
   logLine(`已保存 ${result.saved.length} 张图片。`);
   if (!result.saved.length) {
-    logLine("响应里没有识别到图片字段。可在高级 JSON 中调整请求体，或查看中转站返回格式。");
+    logLine("本次返回中没有可保存的图片，请检查参数后再试。");
   }
   result.saved.forEach(addImageCard);
   setStatus(result.saved.length ? `完成：${result.saved.length} 张图片` : "请求完成，但未找到图片");
 }
 
 async function runChatStream(payload) {
-  setStatus("正在请求 chat/completions 流式接口...");
-  logLine(`POST ${payload.baseUrl.replace(/\/+$/, "")}/v1/chat/completions`);
+  setStatus("正在生成图片...");
+  logLine("已提交实时生成请求。");
   const response = await fetch("/api/chat-stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -210,7 +210,7 @@ async function runChatStream(payload) {
         throw new Error(event.data.error || "流式请求失败");
       } else if (event.event === "done") {
         const total = event.data.saved?.length || savedCount;
-        logLine(`\n流式响应结束，已保存 ${total} 张图片。`);
+        logLine(`\n处理完成，已保存 ${total} 张图片。`);
         setStatus(total ? `完成：${total} 张图片` : "流式响应结束，但未找到图片");
       }
     }
@@ -286,7 +286,7 @@ async function openDir(path) {
 function setBusy(isBusy) {
   state.busy = isBusy;
   els.generate.disabled = isBusy;
-  els.generate.textContent = isBusy ? "生成中..." : "生成并保存";
+  els.generate.textContent = isBusy ? "处理中..." : "生成并保存";
 }
 
 function setStatus(text) {

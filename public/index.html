@@ -12,7 +12,6 @@
         <div class="brand-row">
           <div>
             <h1>Newton Image Tool</h1>
-            <p>牛顿用了都说好的中转站，newtonrouter.com</p>
           </div>
           <span id="serverState" class="state-pill">本地</span>
         </div>
@@ -27,8 +26,8 @@
         <div class="field">
           <span>使用方式</span>
           <div class="segmented" role="radiogroup" aria-label="使用方式">
-            <button class="active" data-mode="generations" type="button">Generations</button>
-            <button data-mode="chat" type="button">Chat Stream</button>
+            <button class="active" data-mode="generations" type="button">标准模式</button>
+            <button data-mode="chat" type="button">实时返回</button>
           </div>
         </div>
 
@@ -57,14 +56,14 @@
         </div>
 
         <label class="field">
-          <span>提示词</span>
-          <textarea id="prompt" rows="8" placeholder="描述你想生成的图片。"></textarea>
+          <span>图片描述</span>
+          <textarea id="prompt" rows="8" placeholder="输入你想生成的画面内容。"></textarea>
         </label>
 
         <details class="advanced">
-          <summary>高级 JSON</summary>
+          <summary>高级参数</summary>
           <textarea id="extraJson" rows="5" spellcheck="false" placeholder='{"quality":"high"}'></textarea>
-          <p>这里的字段会合并到请求体；如需额外请求头，可写 {"headers":{"X-...":"..."}}。</p>
+          <p>这里填写的内容会自动合并到请求参数中；如需附加请求头，可写 {"headers":{"X-...":"..."}}。</p>
         </details>
 
         <button id="generate" class="primary" type="button">生成并保存</button>
@@ -73,7 +72,7 @@
       <section class="workspace">
         <div class="workspace-head">
           <div>
-            <h2>结果</h2>
+            <h2>图片</h2>
             <p id="statusText">准备就绪</p>
           </div>
           <button id="clearResults" type="button">清空</button>
@@ -88,7 +87,7 @@
 
         <section class="panel log-panel">
           <div class="log-head">
-            <h2>请求日志</h2>
+            <h2>处理记录</h2>
             <button id="clearLog" type="button">清空日志</button>
           </div>
           <pre id="log"></pre>
