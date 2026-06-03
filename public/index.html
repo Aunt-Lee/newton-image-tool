@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Newton Image Tool</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="panel settings-panel">
+        <div class="brand-row">
+          <div>
+            <h1>Newton Image Tool</h1>
+            <p>牛顿用了都说好的中转站，newtonrouter.com</p>
+          </div>
+          <span id="serverState" class="state-pill">本地</span>
+        </div>
+
+        <label class="field">
+          <span>API 密钥</span>
+          <input id="apiKey" type="password" autocomplete="off" placeholder="请输入 sk-... 密钥">
+        </label>
+
+        <input id="baseUrl" type="hidden" value="https://newtonrouter.com">
+
+        <div class="field">
+          <span>使用方式</span>
+          <div class="segmented" role="radiogroup" aria-label="使用方式">
+            <button class="active" data-mode="generations" type="button">Generations</button>
+            <button data-mode="chat" type="button">Chat Stream</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>分辨率</span>
+          <div class="segmented" role="radiogroup" aria-label="分辨率">
+            <button class="active" data-resolution="1K" type="button">1K</button>
+            <button data-resolution="2K" type="button">2K</button>
+            <button data-resolution="4K" type="button">4K</button>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>保存位置</span>
+          <div class="inline-field">
+            <input id="saveDir" type="text" spellcheck="false">
+            <button id="chooseDir" class="icon-button" type="button" title="选择文件夹" aria-label="选择文件夹">
+              <span>...</span>
+            </button>
+          </div>
+        </label>
+
+        <div class="button-row">
+          <button id="checkDir" type="button">检测/创建</button>
+          <button id="openDir" type="button">打开目录</button>
+        </div>
+
+        <label class="field">
+          <span>提示词</span>
+          <textarea id="prompt" rows="8" placeholder="描述你想生成的图片。"></textarea>
+        </label>
+
+        <details class="advanced">
+          <summary>高级 JSON</summary>
+          <textarea id="extraJson" rows="5" spellcheck="false" placeholder='{"quality":"high"}'></textarea>
+          <p>这里的字段会合并到请求体；如需额外请求头，可写 {"headers":{"X-...":"..."}}。</p>
+        </details>
+
+        <button id="generate" class="primary" type="button">生成并保存</button>
+      </aside>
+
+      <section class="workspace">
+        <div class="workspace-head">
+          <div>
+            <h2>结果</h2>
+            <p id="statusText">准备就绪</p>
+          </div>
+          <button id="clearResults" type="button">清空</button>
+        </div>
+
+        <div id="gallery" class="gallery empty">
+          <div class="empty-state">
+            <strong>还没有图片</strong>
+            <span>生成成功后会自动保存到指定目录，并在这里预览。</span>
+          </div>
+        </div>
+
+        <section class="panel log-panel">
+          <div class="log-head">
+            <h2>请求日志</h2>
+            <button id="clearLog" type="button">清空日志</button>
+          </div>
+          <pre id="log"></pre>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

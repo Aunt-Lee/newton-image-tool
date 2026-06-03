@@ -1,0 +1,323 @@
+const els = {
+  apiKey: document.querySelector("#apiKey"),
+  baseUrl: document.querySelector("#baseUrl"),
+  saveDir: document.querySelector("#saveDir"),
+  prompt: document.querySelector("#prompt"),
+  extraJson: document.querySelector("#extraJson"),
+  generate: document.querySelector("#generate"),
+  chooseDir: document.querySelector("#chooseDir"),
+  checkDir: document.querySelector("#checkDir"),
+  openDir: document.querySelector("#openDir"),
+  clearResults: document.querySelector("#clearResults"),
+  clearLog: document.querySelector("#clearLog"),
+  gallery: document.querySelector("#gallery"),
+  log: document.querySelector("#log"),
+  statusText: document.querySelector("#statusText"),
+  serverState: document.querySelector("#serverState")
+};
+
+const state = {
+  mode: "generations",
+  resolution: "1K",
+  busy: false,
+  resultCount: 0
+};
+
+init();
+
+async function init() {
+  bindSegmented("[data-mode]", "mode");
+  bindSegmented("[data-resolution]", "resolution");
+  bindEvents();
+  restoreSettings();
+
+  try {
+    const config = await apiGet("/api/config");
+    els.baseUrl.value = localStorage.getItem("newton.baseUrl") || config.defaultBaseUrl;
+    els.saveDir.value = localStorage.getItem("newton.saveDir") || config.defaultSaveDir;
+    els.serverState.textContent = config.platform === "win32" ? "Windows" : config.platform === "darwin" ? "macOS" : "本地";
+    logLine("本地服务已连接。");
+  } catch (error) {
+    setStatus("本地服务未连接");
+    logLine(`错误：${error.message}`);
+  }
+}
+
+function bindSegmented(selector, key) {
+  document.querySelectorAll(selector).forEach(button => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(selector).forEach(item => item.classList.remove("active"));
+      button.classList.add("active");
+      state[key] = button.dataset[key];
+      localStorage.setItem(`newton.${key}`, state[key]);
+    });
+  });
+}
+
+function bindEvents() {
+  els.generate.addEventListener("click", generate);
+  els.chooseDir.addEventListener("click", chooseDir);
+  els.checkDir.addEventListener("click", checkDir);
+  els.openDir.addEventListener("click", () => openDir(els.saveDir.value));
+  els.clearResults.addEventListener("click", clearResults);
+  els.clearLog.addEventListener("click", () => {
+    els.log.textContent = "";
+  });
+
+  ["apiKey", "baseUrl", "saveDir"].forEach(key => {
+    els[key].addEventListener("change", () => localStorage.setItem(`newton.${key}`, els[key].value));
+  });
+}
+
+function restoreSettings() {
+  for (const key of ["apiKey", "baseUrl", "saveDir"]) {
+    const value = localStorage.getItem(`newton.${key}`);
+    if (value) els[key].value = value;
+  }
+
+  for (const key of ["mode", "resolution"]) {
+    const value = localStorage.getItem(`newton.${key}`);
+    if (!value) continue;
+    const button = document.querySelector(`[data-${key}="${value}"]`);
+    if (button) button.click();
+  }
+}
+
+async function chooseDir() {
+  setStatus("正在打开文件夹选择器...");
+  try {
+    const result = await apiPost("/api/select-folder", {});
+    if (result.path) {
+      els.saveDir.value = result.path;
+      localStorage.setItem("newton.saveDir", result.path);
+      setStatus("已选择保存目录");
+      logLine(`保存目录：${result.path}`);
+    } else {
+      setStatus("已取消选择");
+    }
+  } catch (error) {
+    setStatus("无法打开文件夹选择器");
+    logLine(`错误：${error.message}`);
+  }
+}
+
+async function checkDir() {
+  try {
+    const result = await apiPost("/api/check-folder", { path: els.saveDir.value });
+    els.saveDir.value = result.path;
+    localStorage.setItem("newton.saveDir", result.path);
+    setStatus("保存目录可用");
+    logLine(`保存目录可用：${result.path}`);
+  } catch (error) {
+    setStatus("保存目录不可用");
+    logLine(`错误：${error.message}`);
+  }
+}
+
+async function generate() {
+  if (state.busy) return;
+  const payload = collectPayload();
+  if (!payload.apiKey) {
+    setStatus("请先填写 API Key");
+    els.apiKey.focus();
+    return;
+  }
+  if (!payload.prompt) {
+    setStatus("请先填写提示词");
+    els.prompt.focus();
+    return;
+  }
+
+  setBusy(true);
+  localStorage.setItem("newton.apiKey", payload.apiKey);
+  localStorage.setItem("newton.baseUrl", payload.baseUrl);
+  localStorage.setItem("newton.saveDir", payload.saveDir);
+
+  try {
+    if (state.mode === "chat") {
+      await runChatStream(payload);
+    } else {
+      await runGenerations(payload);
+    }
+  } catch (error) {
+    setStatus("生成失败");
+    logLine(`错误：${error.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function collectPayload() {
+  return {
+    apiKey: els.apiKey.value.trim(),
+    baseUrl: els.baseUrl.value.trim() || "https://newtonrouter.com",
+    saveDir: els.saveDir.value.trim(),
+    prompt: els.prompt.value.trim(),
+    extraJson: els.extraJson.value.trim(),
+    mode: state.mode,
+    resolution: state.resolution
+  };
+}
+
+async function runGenerations(payload) {
+  setStatus("正在请求 generations...");
+  logLine(`POST ${payload.baseUrl.replace(/\/+$/, "")}/v1/images/generations`);
+  const result = await apiPost("/api/generate", payload);
+  logLine(`已保存 ${result.saved.length} 张图片。`);
+  if (!result.saved.length) {
+    logLine("响应里没有识别到图片字段。可在高级 JSON 中调整请求体，或查看中转站返回格式。");
+  }
+  result.saved.forEach(addImageCard);
+  setStatus(result.saved.length ? `完成：${result.saved.length} 张图片` : "请求完成，但未找到图片");
+}
+
+async function runChatStream(payload) {
+  setStatus("正在请求 chat/completions 流式接口...");
+  logLine(`POST ${payload.baseUrl.replace(/\/+$/, "")}/v1/chat/completions`);
+  const response = await fetch("/api/chat-stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`本地服务返回 ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let savedCount = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const event = parseSseFrame(frame);
+      if (!event) continue;
+      if (event.event === "meta") {
+        logLine(`保存目录：${event.data.saveDir}`);
+      } else if (event.event === "text" && event.data.text) {
+        logInline(event.data.text);
+      } else if (event.event === "image") {
+        savedCount += 1;
+        addImageCard(event.data);
+        setStatus(`已保存 ${savedCount} 张图片，流式响应仍在继续...`);
+      } else if (event.event === "error") {
+        throw new Error(event.data.error || "流式请求失败");
+      } else if (event.event === "done") {
+        const total = event.data.saved?.length || savedCount;
+        logLine(`\n流式响应结束，已保存 ${total} 张图片。`);
+        setStatus(total ? `完成：${total} 张图片` : "流式响应结束，但未找到图片");
+      }
+    }
+  }
+}
+
+function parseSseFrame(frame) {
+  const lines = frame.split(/\r?\n/);
+  const eventLine = lines.find(line => line.startsWith("event:"));
+  const dataLines = lines.filter(line => line.startsWith("data:"));
+  if (!eventLine || !dataLines.length) return null;
+  const event = eventLine.slice(6).trim();
+  const data = JSON.parse(dataLines.map(line => line.slice(5).trim()).join("\n"));
+  return { event, data };
+}
+
+function addImageCard(image) {
+  if (els.gallery.classList.contains("empty")) {
+    els.gallery.classList.remove("empty");
+    els.gallery.textContent = "";
+  }
+  state.resultCount += 1;
+
+  const card = document.createElement("article");
+  card.className = "image-card";
+
+  const img = document.createElement("img");
+  img.src = `${image.previewUrl}&t=${Date.now()}`;
+  img.alt = image.fileName || `generated image ${state.resultCount}`;
+
+  const meta = document.createElement("div");
+  meta.className = "image-meta";
+
+  const title = document.createElement("strong");
+  title.textContent = image.fileName || `image-${state.resultCount}`;
+
+  const pathLine = document.createElement("code");
+  pathLine.textContent = image.filePath || "";
+
+  const actions = document.createElement("div");
+  actions.className = "image-actions";
+
+  const download = document.createElement("a");
+  download.href = image.previewUrl;
+  download.download = image.fileName || "gpt-image-2.png";
+  download.textContent = "下载";
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.textContent = "打开目录";
+  open.addEventListener("click", () => openDir(els.saveDir.value));
+
+  actions.append(download, open);
+  meta.append(title, pathLine, actions);
+  card.append(img, meta);
+  els.gallery.prepend(card);
+}
+
+function clearResults() {
+  state.resultCount = 0;
+  els.gallery.className = "gallery empty";
+  els.gallery.innerHTML = '<div class="empty-state"><strong>还没有图片</strong><span>生成成功后会自动保存到指定目录，并在这里预览。</span></div>';
+}
+
+async function openDir(path) {
+  try {
+    await apiPost("/api/open-folder", { path });
+  } catch (error) {
+    logLine(`错误：${error.message}`);
+  }
+}
+
+function setBusy(isBusy) {
+  state.busy = isBusy;
+  els.generate.disabled = isBusy;
+  els.generate.textContent = isBusy ? "生成中..." : "生成并保存";
+}
+
+function setStatus(text) {
+  els.statusText.textContent = text;
+}
+
+function logLine(text) {
+  const stamp = new Date().toLocaleTimeString();
+  els.log.textContent += `[${stamp}] ${text}\n`;
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+function logInline(text) {
+  els.log.textContent += text;
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+async function apiGet(url) {
+  const response = await fetch(url);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+async function apiPost(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
