@@ -28,23 +28,33 @@
           <input id="apiKey" type="password" autocomplete="off" placeholder="请输入 sk-... 密钥">
         </label>
 
-        <input id="baseUrl" type="hidden" value="https://newtonrouter.com">
+        <div class="button-row">
+          <button id="checkStreaming" type="button">检测流式能力</button>
+        </div>
+
+        <input id="baseUrl" type="hidden" value="https://image.newtonrouter.com">
 
         <div class="field">
           <span>使用方式</span>
           <div class="segmented" role="radiogroup" aria-label="使用方式">
-            <button class="active" data-mode="generations" type="button">Generations</button>
-            <button data-mode="chat" type="button">Chat Stream</button>
+            <button data-mode="generations" type="button">Generations</button>
+            <button class="active" data-mode="chat" type="button">Chat Stream</button>
           </div>
         </div>
 
         <div class="field">
           <span>分辨率</span>
-          <div class="segmented" role="radiogroup" aria-label="分辨率">
-            <button class="active" data-resolution="1K" type="button">1K</button>
-            <button data-resolution="2K" type="button">2K</button>
-            <button data-resolution="4K" type="button">4K</button>
-          </div>
+          <select id="resolutionPreset" aria-label="常见分辨率">
+            <option value="1024x1024">1024x1024（正方形）</option>
+            <option value="1536x1024">1536x1024（横向）</option>
+            <option value="1024x1536">1024x1536（竖屏）</option>
+            <option value="2048x2048">2048x2048（2K 正方形）</option>
+            <option value="2048x1152">2048x1152（2K 横向）</option>
+            <option value="3840x2160">3840x2160（4K 横向）</option>
+            <option value="2160x3840">2160x3840（4K 竖屏）</option>
+            <option value="auto">auto（默认）</option>
+          </select>
+          <input id="resolution" type="text" spellcheck="false" placeholder="填写以上尺寸之一或 auto">
         </div>
 
         <section class="subpanel">

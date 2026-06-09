@@ -11,11 +11,18 @@ const DEFAULT_PORT = Number(process.env.PORT || 31876);
 const APP_DIR = __dirname;
 const PUBLIC_DIR = path.join(APP_DIR, "public");
 const DEFAULT_SAVE_DIR = path.join(os.homedir(), "Downloads", "NewtonImageTool");
-const SIZE_MAP = {
-  "1K": "1024x1024",
-  "2K": "2048x2048",
-  "4K": "4096x4096"
-};
+const DEFAULT_BASE_URL = "https://image.newtonrouter.com";
+const DEFAULT_SIZE = "1024x1024";
+const ALLOWED_SIZES = new Set([
+  "1024x1024",
+  "1536x1024",
+  "1024x1536",
+  "2048x2048",
+  "2048x1152",
+  "3840x2160",
+  "2160x3840",
+  "auto"
+]);
 
 if (typeof fetch !== "function") {
   console.error("Node.js 18 or newer is required because this tool uses built-in fetch().");
@@ -75,7 +82,7 @@ async function readJson(req) {
 }
 
 function normalizeBaseUrl(input) {
-  const value = String(input || "https://newtonrouter.com").trim().replace(/\/+$/, "");
+  const value = String(input || DEFAULT_BASE_URL).trim().replace(/\/+$/, "");
   const parsed = new URL(value);
   if (!["http:", "https:"].includes(parsed.protocol)) {
     throw new Error("Base URL must start with http:// or https://.");
@@ -124,6 +131,25 @@ function parseExtraJson(raw) {
     throw new Error("Extra JSON must be an object.");
   }
   return parsed;
+}
+
+function describeFetchError(error, endpoint) {
+  const cause = error?.cause;
+  const parts = [
+    `无法连接到 ${endpoint}`,
+    "请检查域名解析、服务器网络、TLS 证书和中转站是否在线"
+  ];
+  const detail = cause?.code || cause?.message || error?.message;
+  if (detail) parts.push(`底层原因：${detail}`);
+  return parts.join("。");
+}
+
+async function fetchUpstream(endpoint, options) {
+  try {
+    return await fetch(endpoint, options);
+  } catch (error) {
+    throw new Error(describeFetchError(error, endpoint));
+  }
 }
 
 function deepFindImages(value, found = []) {
@@ -214,7 +240,7 @@ async function saveImage(image, saveDir, index) {
   let source = image.value;
 
   if (image.type === "url") {
-    const upstream = await fetch(image.value);
+    const upstream = await fetchUpstream(image.value);
     if (!upstream.ok) {
       throw new Error(`Could not download image URL (${upstream.status}).`);
     }
@@ -268,9 +294,10 @@ async function callGenerations(input) {
   const extraHeaders = extra.headers;
   delete extra.headers;
 
-  const size = SIZE_MAP[input.resolution] || SIZE_MAP["1K"];
+  const size = normalizeSize(input.resolution);
   const payload = buildGenerationPayload(input, size, extra);
-  const response = await fetch(`${baseUrl}/v1/images/generations`, {
+  const endpoint = `${baseUrl}/v1/images/generations`;
+  const response = await fetchUpstream(endpoint, {
     method: "POST",
     headers: buildHeaders(input.apiKey, extraHeaders),
     body: JSON.stringify(payload)
@@ -302,7 +329,7 @@ async function callGenerations(input) {
 
   return {
     mode: "generations",
-    endpoint: `${baseUrl}/v1/images/generations`,
+    endpoint,
     request: payload,
     saveDir,
     saved,
@@ -317,10 +344,10 @@ async function callChatStream(input, res) {
   const extraHeaders = extra.headers;
   delete extra.headers;
 
-  const size = SIZE_MAP[input.resolution] || SIZE_MAP["1K"];
+  const size = normalizeSize(input.resolution);
   const payload = buildChatPayload(input, size, extra);
   const endpoint = `${baseUrl}/v1/chat/completions`;
-  const upstream = await fetch(endpoint, {
+  const upstream = await fetchUpstream(endpoint, {
     method: "POST",
     headers: buildHeaders(input.apiKey, extraHeaders),
     body: JSON.stringify(payload)
@@ -343,6 +370,13 @@ async function callChatStream(input, res) {
   let buffer = "";
   let transcript = "";
   const decoder = new TextDecoder();
+  const debug = {
+    frameCount: 0,
+    textChunkCount: 0,
+    imageCount: 0,
+    sampleKeys: [],
+    contentTypes: []
+  };
 
   for await (const chunk of upstream.body) {
     buffer += decoder.decode(chunk, { stream: true });
@@ -366,14 +400,35 @@ async function callChatStream(input, res) {
         json = JSON.parse(data);
       } catch (_) {
         transcript += data;
+        debug.textChunkCount += 1;
         sendSse(res, "text", { text: data });
         continue;
+      }
+
+      debug.frameCount += 1;
+      if (debug.sampleKeys.length < 8) {
+        for (const key of Object.keys(json)) {
+          if (debug.sampleKeys.length >= 8) break;
+          if (!debug.sampleKeys.includes(key)) debug.sampleKeys.push(key);
+        }
       }
 
       const text = extractText(json);
       if (text) {
         transcript += text;
+        debug.textChunkCount += 1;
         sendSse(res, "text", { text });
+      }
+
+      const choices = Array.isArray(json?.choices) ? json.choices : [];
+      for (const choice of choices) {
+        const delta = choice?.delta || choice?.message || {};
+        const content = Array.isArray(delta?.content) ? delta.content : [];
+        for (const item of content) {
+          if (typeof item?.type === "string" && !debug.contentTypes.includes(item.type)) {
+            debug.contentTypes.push(item.type);
+          }
+        }
       }
 
       const images = deepFindImages(json).filter(image => {
@@ -385,6 +440,7 @@ async function callChatStream(input, res) {
       for (const image of images) {
         const savedImage = await saveImage(image, saveDir, saved.length + 1);
         saved.push(savedImage);
+        debug.imageCount += 1;
         sendSse(res, "image", savedImage);
       }
     }
@@ -400,12 +456,110 @@ async function callChatStream(input, res) {
           seen.add(key);
           const savedImage = await saveImage(image, saveDir, saved.length + 1);
           saved.push(savedImage);
+          debug.imageCount += 1;
           sendSse(res, "image", savedImage);
         }
       }
     } catch (_) {}
   }
-  sendSse(res, "done", { saved, transcript });
+  const note = !saved.length
+    ? "流式响应已结束，但当前返回内容中没有识别到可保存的图片数据。可能是上游只返回了文本/状态事件，或图片字段格式与当前兼容模式不同。"
+    : "";
+  sendSse(res, "done", { saved, transcript, debug, note });
+}
+
+async function checkStreamingCapability(input) {
+  const baseUrl = normalizeBaseUrl(input.baseUrl);
+  const extra = parseExtraJson(input.extraJson);
+  const extraHeaders = extra.headers;
+  delete extra.headers;
+
+  const size = normalizeSize(input.resolution);
+  const payload = {
+    ...buildChatPayload(
+      {
+        model: input.model || "gpt-image-2",
+        prompt: input.prompt || "Generate a tiny test image.",
+        resolution: size
+      },
+      size,
+      extra
+    ),
+    max_tokens: 1
+  };
+
+  const endpoint = `${baseUrl}/v1/chat/completions`;
+  const upstream = await fetchUpstream(endpoint, {
+    method: "POST",
+    headers: buildHeaders(input.apiKey, extraHeaders),
+    body: JSON.stringify(payload)
+  });
+
+  const contentType = upstream.headers.get("content-type") || "";
+  if (!upstream.ok) {
+    const text = await upstream.text();
+    let detail = text.slice(0, 800);
+    try {
+      const json = JSON.parse(text);
+      detail = json?.error?.message || json?.message || detail;
+    } catch (_) {}
+    throw new Error(`Streaming probe failed (${upstream.status}): ${detail}`);
+  }
+
+  if (!contentType.toLowerCase().includes("text/event-stream")) {
+    const text = await upstream.text();
+    return {
+      supported: false,
+      detail: `返回内容类型为 ${contentType || "unknown"}，未检测到 SSE 流。`,
+      contentType,
+      sample: text.slice(0, 200)
+    };
+  }
+
+  const reader = upstream.body?.getReader();
+  if (!reader) {
+    return {
+      supported: false,
+      detail: "返回了 SSE 头，但响应体不可读。",
+      contentType
+    };
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const timeoutAt = Date.now() + 15000;
+
+  while (Date.now() < timeoutAt) {
+    const readPromise = reader.read();
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 2000));
+    const result = await Promise.race([readPromise, timeoutPromise]);
+    if (result && result.timeout) {
+      continue;
+    }
+    if (result.done) break;
+
+    buffer += decoder.decode(result.value, { stream: true });
+    if (buffer.includes("data:")) {
+      try {
+        await reader.cancel();
+      } catch (_) {}
+      return {
+        supported: true,
+        detail: "已检测到 SSE 数据块返回。",
+        contentType
+      };
+    }
+  }
+
+  try {
+    await reader.cancel();
+  } catch (_) {}
+
+  return {
+    supported: false,
+    detail: "已返回 SSE 头，但在 15 秒内没有收到数据块。",
+    contentType
+  };
 }
 
 function extractText(json) {
@@ -422,6 +576,12 @@ function extractText(json) {
     }
   }
   return parts.join("");
+}
+
+function normalizeSize(input) {
+  const value = String(input || "").trim().toLowerCase();
+  if (ALLOWED_SIZES.has(value)) return value;
+  return DEFAULT_SIZE;
 }
 
 function chooseFolder() {
@@ -507,9 +667,9 @@ async function handleApi(req, res) {
   try {
     if (req.method === "GET" && requestUrl.pathname === "/api/config") {
       sendJson(res, 200, {
-        defaultBaseUrl: "https://newtonrouter.com",
+        defaultBaseUrl: DEFAULT_BASE_URL,
         defaultSaveDir: DEFAULT_SAVE_DIR,
-        sizeMap: SIZE_MAP,
+        defaultSize: DEFAULT_SIZE,
         platform: process.platform
       });
       return;
@@ -554,6 +714,13 @@ async function handleApi(req, res) {
       return;
     }
 
+    if (req.method === "POST" && requestUrl.pathname === "/api/check-streaming") {
+      const input = await readJson(req);
+      const result = await checkStreamingCapability(input);
+      sendJson(res, 200, result);
+      return;
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/api/chat-stream") {
       const input = await readJson(req);
       res.writeHead(200, {
@@ -587,16 +754,20 @@ const server = http.createServer((req, res) => {
 });
 
 function listen(port) {
-  server.once("error", error => {
+  const onError = error => {
+    server.off("error", onError);
     if (error.code === "EADDRINUSE" && port < DEFAULT_PORT + 20) {
       listen(port + 1);
       return;
     }
     console.error(error);
     process.exit(1);
-  });
+  };
+
+  server.once("error", onError);
 
   server.listen(port, HOST, () => {
+    server.off("error", onError);
     const url = `http://${HOST}:${port}`;
     console.log(`Newton Image Tool is running at ${url}`);
     if (process.env.NO_OPEN !== "1") openUrl(url);
